@@ -505,6 +505,7 @@ const MAX_OVERZOOM_DISPLAY_ZOOM = 10;
 const MAX_MAP_HEIGHT = 4096;
 const MAX_TIMEOUT_DELAY_MS = 2147483647;
 const BASEMAP_STYLE_AUTO = 'auto';
+const BASEMAP_STYLE_THEME = 'theme';
 const SUN_ENTITY_ID = 'sun.sun';
 
 const HALF_EXTENT = 20037508.342789244;
@@ -661,6 +662,10 @@ function getBasemapProvider(config) {
   return hasOwnKey(BASEMAP_PROVIDER_STYLES, config?.basemap_provider) ? config.basemap_provider : DEFAULT_BASEMAP_PROVIDER;
 }
 
+function isThemeBasemapStyle(value) {
+  return typeof value === 'string' && value.trim().toLowerCase() === BASEMAP_STYLE_THEME;
+}
+
 function getDefaultBasemapStyle(provider, darkBasemap) {
   if (provider === 'bom') {
     return darkBasemap ? 'dark' : 'default';
@@ -694,6 +699,11 @@ function getConfiguredBasemapStyle(config, provider) {
     return BASEMAP_STYLE_AUTO;
   }
 
+  // theme mode requires a light/dark pair; providers without one fall through to their default style
+  if (isThemeBasemapStyle(config?.basemap_style) && providerSupportsAutoBasemap(provider)) {
+    return BASEMAP_STYLE_THEME;
+  }
+
   const darkBasemap = config?.dark_basemap !== false;
   return hasOwnKey(BASEMAP_PROVIDER_STYLES[provider] || {}, config?.basemap_style)
     ? config.basemap_style
@@ -721,11 +731,26 @@ function shouldUseDarkAutoBasemap(config, hass) {
   return config?.dark_basemap !== false;
 }
 
+let themeDarkModeWarningLogged = false;
+
 function getResolvedBasemapStyle(config, hass) {
   const provider = getBasemapProvider(config);
   const configuredStyle = getConfiguredBasemapStyle(config, provider);
   if (configuredStyle === BASEMAP_STYLE_AUTO) {
     return getDefaultBasemapStyle(provider, shouldUseDarkAutoBasemap(config, hass));
+  }
+  if (configuredStyle === BASEMAP_STYLE_THEME) {
+    const themeDarkMode = hass?.themes?.darkMode;
+    if (typeof themeDarkMode === 'boolean') {
+      return getDefaultBasemapStyle(provider, themeDarkMode);
+    }
+    if (!themeDarkModeWarningLogged) {
+      themeDarkModeWarningLogged = true;
+      console.warn(
+        'bom-radar-card: Home Assistant theme dark mode is unavailable for basemap_style: theme; falling back to the light basemap.'
+      );
+    }
+    return getDefaultBasemapStyle(provider, false);
   }
   return configuredStyle;
 }
@@ -748,7 +773,11 @@ function getBasemapStyleOptions(provider) {
     }));
 
   return providerSupportsAutoBasemap(resolvedProvider)
-    ? [{ value: BASEMAP_STYLE_AUTO, label: 'Auto (day/night)' }, ...options]
+    ? [
+        { value: BASEMAP_STYLE_AUTO, label: 'Auto (day/night)' },
+        { value: BASEMAP_STYLE_THEME, label: 'Theme (HA dark mode)' },
+        ...options,
+      ]
     : options;
 }
 
@@ -1839,13 +1868,17 @@ class BomRadarCard extends HTMLElement {
     if (
       !this._initialized ||
       !this._map ||
-      this._config.basemap_style !== BASEMAP_STYLE_AUTO ||
+      (this._config.basemap_style !== BASEMAP_STYLE_AUTO &&
+        this._config.basemap_style !== BASEMAP_STYLE_THEME) ||
       !this._resolvedBasemapStyle
     ) {
       return false;
     }
 
-    if (getSunDaylightState(this._hass) === null) {
+    if (
+      this._config.basemap_style === BASEMAP_STYLE_AUTO &&
+      getSunDaylightState(this._hass) === null
+    ) {
       return false;
     }
 
@@ -2813,6 +2846,8 @@ class BomRadarCardEditor extends HTMLElement {
       const nextProvider = getBasemapProvider(config);
       if (basemapStyle.value === BASEMAP_STYLE_AUTO && providerSupportsAutoBasemap(nextProvider)) {
         config.basemap_style = BASEMAP_STYLE_AUTO;
+      } else if (isThemeBasemapStyle(basemapStyle.value) && providerSupportsAutoBasemap(nextProvider)) {
+        config.basemap_style = BASEMAP_STYLE_THEME;
       } else {
         config.basemap_style = hasOwnKey(BASEMAP_PROVIDER_STYLES[nextProvider] || {}, basemapStyle.value)
           ? basemapStyle.value

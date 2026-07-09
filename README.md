@@ -94,7 +94,7 @@ That's it — it will use your Home Assistant location as the default center.
 | `map_height` | number | `300` | Rendered map/card height in pixels. YAML values are capped at 4096 px to protect dashboard clients |
 | `allow_overzoom` | boolean | `false` | Experimental closer-view mode. Allows display zoom up to 10 by scaling BOM's native z8 radar tiles |
 | `basemap_provider` | string | `bom` | Basemap provider: `bom`, `carto`, `stadia`, or `esri` |
-| `basemap_style` | string | provider default | Basemap style for the selected provider. Set to `auto` for day/night switching on providers with light/dark pairs |
+| `basemap_style` | string | provider default | Basemap style for the selected provider. Set to `auto` for `sun.sun` day/night switching, or `theme` to follow the active Home Assistant theme's light/dark mode (both need a provider with light/dark pairs) |
 | `basemap_api_key` | string | none | Optional provider API key. Not used for BOM or CARTO |
 | `show_bom_boundaries` | boolean | `false` | Backward-compatible shortcut for `bom_reference_layers: [state_borders]` |
 | `bom_reference_layers` | list | none | Optional BOM reference overlays: `state_borders`, `coastal_areas`, `forecast_districts`, `drainage_divisions`, `railways`, `lakes` |
@@ -172,6 +172,18 @@ basemap_style: auto
 ```
 
 Auto mode uses Home Assistant's `sun.sun` state, so the switch follows the sunrise and sunset times for your Home Assistant location. If `sun.sun` is unavailable, the card falls back to the legacy `dark_basemap` default. The default BOM provider uses `basemap_default` during the day and the verified `basemap_dark` MapServer tiles after sunset.
+
+### Theme-Following Basemap
+
+Set `basemap_style: theme` to have the card follow the active Home Assistant theme's light/dark mode instead of the sun. When the theme is light the card uses the provider's light style; when it is dark it uses the provider's dark style:
+
+```yaml
+type: custom:bom-radar-card
+basemap_provider: bom
+basemap_style: theme
+```
+
+The light/dark style pairs used are `default`/`dark` for `bom`, `light`/`dark` for `carto`, `alidade_light`/`alidade_dark` for `stadia`, and `topo`/`imagery` for `esri`. Providers without a light/dark pair simply use their default style. If Home Assistant's theme dark-mode state is unavailable, the card falls back to the light basemap.
 
 ### BOM Reference Overlays
 

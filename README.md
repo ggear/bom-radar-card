@@ -100,6 +100,7 @@ That's it — it will use your Home Assistant location as the default center.
 | `bom_reference_layers` | list | none | Optional BOM reference overlays: `state_borders`, `coastal_areas`, `forecast_districts`, `drainage_divisions`, `railways`, `lakes` |
 | `radar_opacity` | number | `0.7` | Weather overlay opacity (0.1–1.0) |
 | `chrome_opacity` | number | `1.0` | Opacity of the card chrome: controls, playback bar, layer badge, and panels |
+| `chrome_style` | string | `dark` | Palette for the map-overlay controls: `dark`, `light` or `auto` which mirrors the resolved basemap style |
 | `accent_color` | string | neutral UI default | Optional custom UI accent color for playback/progress/focus highlights |
 | `location_color` | string | HA accent | Optional custom GPS/home marker color |
 | `frame_count` | number | `9` | Number of animation frames. Values are clamped to 1–9 |
@@ -282,10 +283,21 @@ Note: Esri legacy API keys are being retired, so use the current API key credent
 ### UI Polish And Accent Controls
 
 - `chrome_opacity` lets you soften or strengthen the card chrome without affecting the weather overlay itself
+- `chrome_style` picks the palette for the map-overlay controls
 - `accent_color` controls the UI highlight color for playback/progress/focus states
 - `location_color` controls the GPS/home marker independently from the rest of the UI
 
 By default, the card uses a neutral light UI accent and keeps the location marker tied to your Home Assistant accent color.
+
+The map-overlay controls are dark by default so they stay legible over the standard dark radar basemap. If you switch to a light basemap the dark controls can look heavy, so set `chrome_style: auto` to have the controls follow the resolved basemap — light controls over a light basemap and dark controls over a dark one — or pin them with `chrome_style: light` or `chrome_style: dark`:
+
+```yaml
+type: custom:bom-radar-card
+basemap_style: light
+chrome_style: auto
+```
+
+The transparency set by `chrome_opacity` and your `accent_color` highlights (active timeline dots, focus rings, spinner) are preserved in every mode.
 
 ### Limiting The Layer Switcher
 

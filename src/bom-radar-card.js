@@ -528,6 +528,11 @@ const BASEMAP_PROVIDER_NAMES = {
 };
 const DEFAULT_BASEMAP_PROVIDER = 'bom';
 
+const CHROME_STYLE_AUTO = 'auto';
+const CHROME_STYLE_LIGHT = 'light';
+const CHROME_STYLE_DARK = 'dark';
+const DEFAULT_CHROME_STYLE = CHROME_STYLE_DARK;
+
 const CARTO_ATTRIBUTION = '&copy; <a href="https://carto.com">CARTO</a> | &copy; <a href="http://www.bom.gov.au">BOM</a>';
 const BOM_ATTRIBUTION = '&copy; <a href="http://www.bom.gov.au">BOM</a>';
 const STADIA_ATTRIBUTION = '&copy; <a href="https://www.stadiamaps.com">Stadia Maps</a> &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> | &copy; <a href="http://www.bom.gov.au">BOM</a>';
@@ -698,6 +703,14 @@ function getConfiguredBasemapStyle(config, provider) {
   return hasOwnKey(BASEMAP_PROVIDER_STYLES[provider] || {}, config?.basemap_style)
     ? config.basemap_style
     : getDefaultBasemapStyle(provider, darkBasemap);
+}
+
+function getChromeStyle(config) {
+  const value = typeof config?.chrome_style === 'string' ? config.chrome_style.trim().toLowerCase() : '';
+  if (value === CHROME_STYLE_AUTO || value === CHROME_STYLE_LIGHT || value === CHROME_STYLE_DARK) {
+    return value;
+  }
+  return DEFAULT_CHROME_STYLE;
 }
 
 function getSunDaylightState(hass) {
@@ -1202,6 +1215,28 @@ ha-card {
     margin-top: 20px;
   }
 }
+
+/* Light basemap controls: white surfaces with gray highlights, same transparency */
+ha-card.is-light-basemap .leaflet-control-zoom a,
+ha-card.is-light-basemap .bom-recenter-button,
+ha-card.is-light-basemap .bom-layer-button{background-color:rgb(255 255 255 / calc(0.72 * var(--bom-chrome-opacity, 1)));color:rgba(30,41,59,0.72);border-bottom-color:rgb(15 23 42 / calc(0.1 * var(--bom-chrome-opacity, 1)))}
+ha-card.is-light-basemap .leaflet-control-zoom a:hover,
+ha-card.is-light-basemap .bom-recenter-button:hover,
+ha-card.is-light-basemap .bom-layer-button:hover,
+ha-card.is-light-basemap .bom-layer-button.is-open{background-color:rgb(226 232 240 / calc(0.9 * var(--bom-chrome-opacity, 1)));color:#1e293b}
+ha-card.is-light-basemap .bom-layer-panel{background:rgb(255 255 255 / calc(0.86 * var(--bom-chrome-opacity, 1)));border-color:rgb(15 23 42 / calc(0.1 * var(--bom-chrome-opacity, 1)))}
+ha-card.is-light-basemap .bom-layer-group{color:rgba(30,41,59,0.5)}
+ha-card.is-light-basemap .bom-layer-option{color:rgba(30,41,59,0.72)}
+ha-card.is-light-basemap .bom-layer-option:hover,
+ha-card.is-light-basemap .bom-layer-option.is-active{background:rgb(15 23 42 / calc(0.08 * var(--bom-chrome-opacity, 1)));color:#1e293b}
+ha-card.is-light-basemap .leaflet-control-attribution{background:rgb(255 255 255 / calc(0.28 * var(--bom-chrome-opacity, 1)))!important;color:rgba(30,41,59,0.55)}
+ha-card.is-light-basemap .controls{background:rgb(255 255 255 / calc(0.74 * var(--bom-chrome-opacity, 1)));border-color:rgb(15 23 42 / calc(0.08 * var(--bom-chrome-opacity, 1)))}
+ha-card.is-light-basemap .play-btn{color:rgba(30,41,59,0.78)}
+ha-card.is-light-basemap .play-btn:hover{background:rgb(15 23 42 / calc(0.08 * var(--bom-chrome-opacity, 1)))}
+ha-card.is-light-basemap .time-label{color:rgba(30,41,59,0.6)}
+ha-card.is-light-basemap .frame-dot:not(.active):not(.past){background:rgba(15,23,42,0.14)}
+ha-card.is-light-basemap .frame-dot:not(.active):not(.past):hover{background:rgba(15,23,42,0.3)}
+ha-card.is-light-basemap .layer-badge{background:rgb(255 255 255 / calc(0.58 * var(--bom-chrome-opacity, 1)));border-color:rgb(15 23 42 / calc(0.08 * var(--bom-chrome-opacity, 1)));color:rgba(30,41,59,0.6)}
 `;
 
 let leafletLoadPromise = null;
@@ -1813,6 +1848,7 @@ class BomRadarCard extends HTMLElement {
       dark_basemap: darkBasemap,
       basemap_provider: basemapProvider,
       basemap_style: basemapStyle,
+      chrome_style: getChromeStyle(config),
       basemap_api_key: config.basemap_api_key,
       marker_latitude: parseOptionalFiniteNumber(config.marker_latitude),
       marker_longitude: parseOptionalFiniteNumber(config.marker_longitude),
@@ -1964,6 +2000,16 @@ class BomRadarCard extends HTMLElement {
     this._resolvedBasemapStyle = basemapConfig.style;
 
     container.style.background = basemapConfig.background;
+
+    // Lighten map-overlay controls per chrome_style: dark keeps them dark, light forces
+    // them light, and auto mirrors the resolved basemap (light controls over a light basemap)
+    const chromeStyle = this._config.chrome_style;
+    this.shadowRoot.querySelector('ha-card')?.classList.toggle(
+      'is-light-basemap',
+      chromeStyle === CHROME_STYLE_LIGHT ||
+        (chromeStyle !== CHROME_STYLE_DARK &&
+          !isDarkBasemapStyle(basemapConfig.provider, basemapConfig.style))
+    );
 
     this._map = L.map(container, {
       center: [lat, lon],

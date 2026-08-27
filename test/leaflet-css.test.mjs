@@ -47,3 +47,16 @@ test('keeps loaded Leaflet tiles and overlays behind the home marker pane', () =
 test('preserves Leaflet absolute positioning for the home marker icon', () => {
   assert.equal(getCssProperty(cardCss, '.marker-dot', 'position'), 'absolute');
 });
+
+test('isolates Leaflet below card-owned controls and overlays', () => {
+  const mapZIndex = Number(getCssProperty(cardCss, '#map', 'z-index'));
+  const controlsZIndex = Number(getCssProperty(cardCss, '.controls', 'z-index'));
+  const badgeZIndex = Number(getCssProperty(cardCss, '.layer-badge', 'z-index'));
+  const legendZIndex = Number(getCssProperty(cardCss, '.legend-card', 'z-index'));
+
+  assert.equal(getCssProperty(cardCss, '#map', 'position'), 'relative');
+  assert.equal(mapZIndex, 0);
+  assert.ok(mapZIndex < controlsZIndex);
+  assert.ok(mapZIndex < badgeZIndex);
+  assert.ok(mapZIndex < legendZIndex);
+});

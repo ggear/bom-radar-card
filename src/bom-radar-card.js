@@ -559,6 +559,7 @@ ha-card {
   margin-top: 18px;
 }
 #map {
+  position: relative;
   width: 100%;
   border-radius: var(--bom-card-radius, var(--ha-card-border-radius, 12px));
   z-index: 0;

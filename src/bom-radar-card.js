@@ -34,7 +34,7 @@ import {
 } from './timestamp-availability.js';
 import { generateFallbackTimestamps } from './timestamps.js';
 
-const CARD_VERSION = '1.11.0';
+const CARD_VERSION = '1.11.1';
 const DEFAULT_ACCENT_COLOR = '#00BCD4';
 const DEFAULT_UI_ACCENT_COLOR = '#F8FAFC';
 
@@ -85,7 +85,7 @@ const BASEMAP_PROVIDER_NAMES = {
 };
 const DEFAULT_BASEMAP_PROVIDER = 'bom';
 
-const CARTO_ATTRIBUTION = '&copy; <a href="https://carto.com">CARTO</a> | &copy; <a href="http://www.bom.gov.au">BOM</a>';
+const CARTO_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy; <a href="https://carto.com/attributions">CARTO</a> | &copy; <a href="http://www.bom.gov.au">BOM</a>';
 const BOM_ATTRIBUTION = '&copy; <a href="http://www.bom.gov.au">BOM</a>';
 const STADIA_ATTRIBUTION = '&copy; <a href="https://www.stadiamaps.com">Stadia Maps</a> &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> | &copy; <a href="http://www.bom.gov.au">BOM</a>';
 const STADIA_STAMEN_ATTRIBUTION = '&copy; <a href="https://www.stadiamaps.com">Stadia Maps</a> &copy; <a href="https://stamen.com/">Stamen Design</a> &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> | &copy; <a href="http://www.bom.gov.au">BOM</a>';
@@ -316,9 +316,10 @@ function getBasemapConfig(config, hass) {
     ? BASEMAP_PROVIDER_STYLES[provider][style]
     : BASEMAP_PROVIDER_STYLES[DEFAULT_BASEMAP_PROVIDER][getDefaultBasemapStyle(DEFAULT_BASEMAP_PROVIDER, true)];
   const apiKey = typeof config?.basemap_api_key === 'string' ? config.basemap_api_key.trim() : '';
+  const cartoApiKey = typeof config?.carto_api_key === 'string' ? config.carto_api_key.trim() : '';
   const stadiaKeySuffix = apiKey ? `?api_key=${encodeURIComponent(apiKey)}` : '';
   const esriTokenSuffix = apiKey ? `?token=${encodeURIComponent(apiKey)}` : '';
-  const cartoKeySuffix = apiKey ? `?key=${encodeURIComponent(apiKey)}` : '';
+  const cartoKeySuffix = cartoApiKey ? `?key=${encodeURIComponent(cartoApiKey)}` : '';
 
   if (provider === 'carto') {
     return {
@@ -473,9 +474,17 @@ const LEAFLET_CSS = `
 .leaflet-control-zoom-in,.leaflet-control-zoom-out{font:bold 18px 'Lucida Console',Monaco,monospace;text-indent:1px}
 .leaflet-touch .leaflet-control-zoom-in,.leaflet-touch .leaflet-control-zoom-out{font-size:22px}
 .leaflet-map-pane,.leaflet-tile,.leaflet-marker-icon,.leaflet-marker-shadow,.leaflet-tile-container,.leaflet-pane>svg,.leaflet-pane>canvas,.leaflet-zoom-box,.leaflet-image-layer,.leaflet-layer{position:absolute;left:0;top:0;pointer-events:none}
-.leaflet-tile-pane{pointer-events:auto}
-.leaflet-control{position:relative;z-index:2;pointer-events:visiblePainted;pointer-events:auto}
-.leaflet-top,.leaflet-bottom{position:absolute;z-index:3;pointer-events:none}
+.leaflet-pane{z-index:400}
+.leaflet-tile-pane{z-index:200;pointer-events:auto}
+.leaflet-overlay-pane{z-index:400}
+.leaflet-shadow-pane{z-index:500}
+.leaflet-marker-pane{z-index:600}
+.leaflet-tooltip-pane{z-index:650}
+.leaflet-popup-pane{z-index:700}
+.leaflet-map-pane canvas{z-index:100}
+.leaflet-map-pane svg{z-index:200}
+.leaflet-control{position:relative;z-index:800;pointer-events:visiblePainted;pointer-events:auto}
+.leaflet-top,.leaflet-bottom{position:absolute;z-index:1000;pointer-events:none}
 .leaflet-top{top:0}.leaflet-right{right:0}.leaflet-bottom{bottom:0}.leaflet-left{left:0}
 .leaflet-control{float:left;clear:both}
 .leaflet-right .leaflet-control{float:right}
@@ -488,8 +497,8 @@ const LEAFLET_CSS = `
 .leaflet-control-zoom a:hover{background-color:rgb(18 24 42 / calc(0.84 * var(--bom-chrome-opacity, 1)));color:white}
 .leaflet-control-zoom-in{border-top-left-radius:var(--bom-control-radius);border-top-right-radius:var(--bom-control-radius)}
 .leaflet-control-zoom-out{border-bottom-left-radius:var(--bom-control-radius);border-bottom-right-radius:var(--bom-control-radius);border-bottom:none}
-.leaflet-control-attribution{background:rgb(7 10 18 / calc(0.28 * var(--bom-chrome-opacity, 1)))!important;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);color:rgba(255,255,255,0.38);font-size:9px;padding:1px 5px;border-radius:var(--bom-attribution-radius);line-height:1.4}
-.leaflet-control-attribution a{color:color-mix(in srgb, var(--bom-ui-accent-color, #F8FAFC) 50%, transparent);text-decoration:none}
+.leaflet-control-attribution{background:rgb(7 10 18 / calc(0.58 * var(--bom-chrome-opacity, 1)))!important;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);color:rgba(255,255,255,0.76);font-size:10px;padding:2px 6px;border-radius:var(--bom-attribution-radius);line-height:1.4}
+.leaflet-control-attribution a{color:color-mix(in srgb, var(--bom-ui-accent-color, #F8FAFC) 82%, white 18%);text-decoration:none}
 .leaflet-touch .leaflet-control-zoom a{width:36px;height:36px;line-height:36px;font-size:18px}
 .bom-recenter-control{border:none;border-radius:var(--bom-control-radius);overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,0.24)}
 .bom-recenter-button{appearance:none;-webkit-appearance:none;background-color:rgb(14 18 32 / calc(0.72 * var(--bom-chrome-opacity, 1)));backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);color:rgba(255,255,255,0.68);width:30px;height:30px;padding:0;display:flex;align-items:center;justify-content:center;border:none;cursor:pointer;transition:background 0.15s,color 0.15s,opacity 0.15s}
@@ -730,7 +739,7 @@ ha-card {
 
 /* Home marker */
 .marker-dot {
-  position: relative;
+  position: absolute;
 }
 .marker-dot::before {
   content: '';
@@ -1178,6 +1187,7 @@ class BomRadarCard extends HTMLElement {
       basemap_provider: basemapProvider,
       basemap_style: basemapStyle,
       basemap_api_key: config.basemap_api_key,
+      carto_api_key: config.carto_api_key,
       marker_latitude: parseOptionalFiniteNumber(config.marker_latitude),
       marker_longitude: parseOptionalFiniteNumber(config.marker_longitude),
       radar_opacity: clampNumber(config.radar_opacity, 0.7, 0.1, 1),
@@ -1985,6 +1995,9 @@ class BomRadarCardEditor extends HTMLElement {
     const cfg = this._config;
     const basemapProvider = getBasemapProvider(cfg);
     const basemapStyle = getConfiguredBasemapStyle(cfg, basemapProvider);
+    const basemapApiKey = basemapProvider === 'carto'
+      ? cfg.carto_api_key
+      : basemapProvider === 'bom' ? '' : cfg.basemap_api_key;
     const enabledLayerKeys = getEnabledLayerKeys(cfg);
     const groupedLayers = getGroupedLayerEntries(enabledLayerKeys);
     const bomReferenceLayerKeys = getBomReferenceLayerKeys(cfg);
@@ -2103,9 +2116,9 @@ class BomRadarCardEditor extends HTMLElement {
             </div>
           </div>
           <div class="row">
-            <label>Basemap API Key (Optional)</label>
-            <input type="password" id="basemap_api_key" value="${escapeHtml(cfg.basemap_api_key || '')}" autocomplete="off">
-            <div class="help-text">Not needed for BOM. CARTO now recommends a free API key to avoid a watermark; Stadia Maps requires domain authentication or a browser API key; Esri may require a browser API key for the selected service. See the <a href="https://github.com/AshtonAU/bom-radar-card#getting-basemap-provider-keys" target="_blank" rel="noreferrer">README provider-key guide</a>.</div>
+            <label>Basemap API Key</label>
+            <input type="password" id="basemap_api_key" value="${escapeHtml(basemapApiKey || '')}" autocomplete="off" ${basemapProvider === 'bom' ? 'disabled' : ''}>
+            <div class="help-text">Not used by BOM. CARTO uses its dedicated <code>carto_api_key</code>; Stadia Maps and Esri use <code>basemap_api_key</code>. Keys are provider-specific and are cleared when the provider changes. See the <a href="https://github.com/AshtonAU/bom-radar-card#getting-basemap-provider-keys" target="_blank" rel="noreferrer">README provider-key guide</a>.</div>
           </div>
           ${this._toggle('show_bom_boundaries', 'BOM state borders overlay', bomReferenceLayerKeys.includes('state_borders'))}
           <div class="row">
@@ -2169,6 +2182,7 @@ class BomRadarCardEditor extends HTMLElement {
           ${this._toggle('square_style', 'Square style', cfg.square_style === true)}
           ${this._toggle('show_layer_label', 'Layer label', cfg.show_layer_label === true)}
           ${this._toggle('show_attribution', 'Attribution', cfg.show_attribution !== false)}
+          <div class="help-text">Optional card setting. CARTO requires visible OpenStreetMap and CARTO attribution, so disabling this while using CARTO violates its provider terms.</div>
         </div>
 
         <div class="section">
@@ -2280,8 +2294,13 @@ class BomRadarCardEditor extends HTMLElement {
       delete config.bom_reference_layers;
     }
 
+    const previousBasemapProvider = getBasemapProvider(config);
     const basemapProvider = get('basemap_provider');
-    if (basemapProvider) config.basemap_provider = basemapProvider.value;
+    const nextBasemapProvider = basemapProvider
+      ? getBasemapProvider({ basemap_provider: basemapProvider.value })
+      : previousBasemapProvider;
+    const basemapProviderChanged = nextBasemapProvider !== previousBasemapProvider;
+    if (basemapProvider) config.basemap_provider = nextBasemapProvider;
 
     const basemapStyle = get('basemap_style');
     if (basemapStyle) {
@@ -2298,10 +2317,30 @@ class BomRadarCardEditor extends HTMLElement {
 
     const basemapApiKey = get('basemap_api_key');
     if (basemapApiKey) {
-      if (basemapApiKey.value === '') {
+      if (basemapProviderChanged) {
+        basemapApiKey.value = '';
         delete config.basemap_api_key;
+        delete config.carto_api_key;
+      } else if (nextBasemapProvider === 'carto') {
+        delete config.basemap_api_key;
+        if (basemapApiKey.value.trim() === '') {
+          delete config.carto_api_key;
+        } else {
+          config.carto_api_key = basemapApiKey.value.trim();
+        }
+      } else if (nextBasemapProvider === 'stadia' || nextBasemapProvider === 'esri') {
+        delete config.carto_api_key;
+        if (basemapApiKey.value.trim() === '') {
+          delete config.basemap_api_key;
+        } else {
+          config.basemap_api_key = basemapApiKey.value.trim();
+        }
+      } else if (basemapApiKey.value.trim() === '') {
+        delete config.basemap_api_key;
+        delete config.carto_api_key;
       } else {
-        config.basemap_api_key = basemapApiKey.value;
+        delete config.basemap_api_key;
+        delete config.carto_api_key;
       }
     }
 

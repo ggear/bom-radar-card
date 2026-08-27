@@ -99,6 +99,47 @@ function matchesSelector(element, selector) {
   return element.localName === selector.toLowerCase();
 }
 
+function decodeHtmlAttribute(value) {
+  return String(value ?? '')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#039;', "'")
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&amp;', '&');
+}
+
+function readHtmlAttribute(attributes, name) {
+  return decodeHtmlAttribute(attributes.match(new RegExp(`\\b${name}="([^"]*)"`))?.[1] ?? '');
+}
+
+function buildEditorControls(document, html) {
+  const fragment = new FakeDocumentFragment(document);
+  const selectPattern = /<select\b([^>]*\bid="[^"]+"[^>]*)>([\s\S]*?)<\/select>/g;
+  const inputPattern = /<input\b([^>]*\bid="[^"]+"[^>]*)>/g;
+
+  for (const match of html.matchAll(selectPattern)) {
+    const [, attributes, options] = match;
+    const select = document.createElement('select');
+    select.id = readHtmlAttribute(attributes, 'id');
+    const selectedOption = options.match(/<option\b([^>]*\bselected\b[^>]*)>/);
+    const firstOption = options.match(/<option\b([^>]*)>/);
+    select.value = readHtmlAttribute(selectedOption?.[1] ?? firstOption?.[1] ?? '', 'value');
+    fragment.appendChild(select);
+  }
+
+  for (const match of html.matchAll(inputPattern)) {
+    const attributes = match[1];
+    const input = document.createElement('input');
+    input.id = readHtmlAttribute(attributes, 'id');
+    input.type = readHtmlAttribute(attributes, 'type');
+    input.value = readHtmlAttribute(attributes, 'value');
+    input.checked = /(?:^|\s)checked(?:\s|$)/.test(attributes);
+    fragment.appendChild(input);
+  }
+
+  return fragment;
+}
+
 class FakeElement {
   constructor(localName = 'div', ownerDocument = null) {
     this.localName = localName.toLowerCase();
@@ -142,6 +183,9 @@ class FakeElement {
     this._innerHTML = String(value ?? '');
     this.children.forEach((child) => { child.parentNode = null; });
     this.children = [];
+    if (this.localName === '#shadow-root' && this._innerHTML.includes('<div class="editor">')) {
+      this.appendChild(buildEditorControls(this.ownerDocument, this._innerHTML));
+    }
   }
 
   get innerHTML() {
@@ -807,6 +851,15 @@ function timeline(card) {
 
 function activeFrameIndex(card) {
   return timeline(card).children.findIndex((frame) => frame.classList.contains('active'));
+}
+
+async function initializeCard(harness, config, hass = issueHass()) {
+  const card = new harness.Card();
+  card.setConfig(config);
+  card.hass = hass;
+  setConnected(card, true);
+  await flushUntil(() => timeline(card)?.children.length === config.frame_count);
+  return card;
 }
 
 test('initializes after Home Assistant sets config and hass while the card is disconnected', async () => {
@@ -1485,6 +1538,292 @@ test('auto basemap keeps its current style without sun data and restarts on day-
   assert.match(harness.leafletState.tileLayerCalls[2].url, /basemap_default/);
 
   setConnected(card, false);
+});
+
+test('adds the trimmed and encoded CARTO key to base and label tiles for light, dark, and auto styles', async () => {
+  const expectedKeySuffix = '?key=abc%20%3F%26%2F';
+  const scenarios = [
+    { style: 'light', sunState: 'below_horizon', expectedPath: 'voyager' },
+    { style: 'dark', sunState: 'above_horizon', expectedPath: 'dark' },
+    { style: 'auto', sunState: 'above_horizon', expectedPath: 'voyager' },
+    { style: 'auto', sunState: 'below_horizon', expectedPath: 'dark' },
+  ];
+
+  for (const { style, sunState, expectedPath } of scenarios) {
+    const harness = createHarness();
+    const card = await initializeCard(
+      harness,
+      issueConfig({
+        basemap_provider: 'carto',
+        basemap_style: style,
+        basemap_api_key: 'legacy-stadia-key',
+        carto_api_key: '  abc ?&/  ',
+      }),
+      issueHass({ 'sun.sun': { state: sunState, attributes: {} } }),
+    );
+    const cartoCalls = harness.leafletState.tileLayerCalls.filter(({ url }) => url.includes('cartocdn.com'));
+
+    assert.equal(cartoCalls.length, 2, `${style}/${sunState} should create CARTO base and label layers`);
+    assert.ok(cartoCalls.every(({ url }) => url.endsWith(expectedKeySuffix)));
+    assert.ok(cartoCalls.every(({ url }) => (url.match(/\?key=/g) || []).length === 1));
+    assert.ok(cartoCalls.every(({ url }) => url.includes(expectedPath)));
+    assert.equal(cartoCalls.find(({ url }) => url.includes('only_labels')).options.pane, 'overlayPane');
+
+    setConnected(card, false);
+  }
+});
+
+test('leaves CARTO URLs unchanged when the configured key is blank or not a string', async () => {
+  for (const cartoApiKey of ['   ', 42, null]) {
+    const harness = createHarness();
+    const card = await initializeCard(harness, issueConfig({
+      basemap_provider: 'carto',
+      basemap_style: 'light',
+      carto_api_key: cartoApiKey,
+    }));
+    const cartoCalls = harness.leafletState.tileLayerCalls.filter(({ url }) => url.includes('cartocdn.com'));
+
+    assert.equal(cartoCalls.length, 2);
+    assert.ok(cartoCalls.every(({ url }) => !url.includes('?')));
+
+    setConnected(card, false);
+  }
+});
+
+test('never sends provider API keys to BOM tiles', async () => {
+  const harness = createHarness();
+  const legacySecret = 'stadia secret ?&/';
+  const cartoSecret = 'carto secret ?&/';
+  const card = await initializeCard(harness, issueConfig({
+    basemap_provider: 'bom',
+    basemap_style: 'default',
+    basemap_api_key: legacySecret,
+    carto_api_key: cartoSecret,
+  }));
+  const bomBasemapCall = harness.leafletState.tileLayerCalls.find(({ url }) => url.includes('/mapping/basemaps/'));
+
+  assert.ok(bomBasemapCall);
+  assert.equal(
+    bomBasemapCall.url,
+    'https://api.bom.gov.au/apikey/v1/mapping/basemaps/basemap_default/MapServer/tile/{z}/{y}/{x}?blankTile=false',
+  );
+  assert.ok(!bomBasemapCall.url.includes(encodeURIComponent(legacySecret)));
+  assert.ok(!bomBasemapCall.url.includes(encodeURIComponent(cartoSecret)));
+
+  setConnected(card, false);
+});
+
+test('falls back to BOM without sending either key for an invalid provider', async () => {
+  const harness = createHarness();
+  const card = await initializeCard(harness, issueConfig({
+    basemap_provider: 'not-a-provider',
+    basemap_api_key: 'legacy-secret',
+    carto_api_key: 'carto-secret',
+  }));
+  const basemapCall = harness.leafletState.tileLayerCalls.find(({ url }) => url.includes('/mapping/basemaps/'));
+
+  assert.ok(basemapCall);
+  assert.ok(!/[?&](?:key|api_key|token)=/.test(basemapCall.url));
+  assert.equal(card._config.basemap_provider, 'bom');
+
+  setConnected(card, false);
+});
+
+test('does not treat a legacy basemap_api_key as a CARTO key after upgrade', async () => {
+  const harness = createHarness();
+  const legacySecret = 'legacy-stadia-secret';
+  const card = await initializeCard(harness, issueConfig({
+    basemap_provider: 'carto',
+    basemap_style: 'light',
+    basemap_api_key: legacySecret,
+  }));
+  const cartoCalls = harness.leafletState.tileLayerCalls.filter(({ url }) => url.includes('cartocdn.com'));
+
+  assert.equal(cartoCalls.length, 2);
+  assert.ok(cartoCalls.every(({ url }) => !url.includes('?key=') && !url.includes(legacySecret)));
+
+  setConnected(card, false);
+});
+
+test('keeps basemap_api_key backward compatible for Stadia Maps and Esri without sending carto_api_key', async () => {
+  const scenarios = [
+    { provider: 'stadia', style: 'alidade_light', host: 'stadiamaps.com', parameter: 'api_key' },
+    { provider: 'esri', style: 'imagery', host: 'arcgisonline.com', parameter: 'token' },
+  ];
+
+  for (const { provider, style, host, parameter } of scenarios) {
+    const harness = createHarness();
+    const card = await initializeCard(harness, issueConfig({
+      basemap_provider: provider,
+      basemap_style: style,
+      basemap_api_key: '  legacy ?&/  ',
+      carto_api_key: 'carto-only-secret',
+    }));
+    const providerCalls = harness.leafletState.tileLayerCalls.filter(({ url }) => url.includes(host));
+
+    assert.ok(providerCalls.length > 0);
+    assert.ok(providerCalls.every(({ url }) => new URL(url).searchParams.get(parameter) === 'legacy ?&/'));
+    assert.ok(providerCalls.every(({ url }) => !url.includes('carto-only-secret')));
+
+    setConnected(card, false);
+  }
+});
+
+test('uses linked CARTO and OpenStreetMap attribution while preserving the user attribution toggle', async () => {
+  for (const showAttribution of [undefined, true, false]) {
+    const harness = createHarness();
+    const config = issueConfig({
+      basemap_provider: 'carto',
+      basemap_style: 'light',
+      show_attribution: showAttribution,
+    });
+    const card = await initializeCard(harness, config);
+    const map = harness.leafletState.maps[0];
+    const cartoBaseCall = harness.leafletState.tileLayerCalls.find(({ url }) => url.includes('voyager_nolabels'));
+
+    assert.equal(map.options.attributionControl, showAttribution !== false);
+    assert.match(cartoBaseCall.options.attribution, /<a href="https:\/\/[^" ]*carto\.com[^" ]*">CARTO<\/a>/);
+    assert.match(cartoBaseCall.options.attribution, /<a href="https:\/\/www\.openstreetmap\.org\/copyright">OpenStreetMap<\/a>/);
+
+    setConnected(card, false);
+  }
+});
+
+test('keeps attribution user-toggleable for every basemap provider', async () => {
+  const providers = [
+    { provider: 'bom', style: 'default' },
+    { provider: 'carto', style: 'light' },
+    { provider: 'stadia', style: 'alidade_light' },
+    { provider: 'esri', style: 'topo' },
+  ];
+
+  for (const { provider, style } of providers) {
+    for (const showAttribution of [true, false]) {
+      const harness = createHarness();
+      const card = await initializeCard(harness, issueConfig({
+        basemap_provider: provider,
+        basemap_style: style,
+        show_attribution: showAttribution,
+      }));
+
+      assert.equal(harness.leafletState.maps[0].options.attributionControl, showAttribution);
+      assert.equal(card._config.show_attribution, showAttribution);
+
+      setConnected(card, false);
+    }
+  }
+});
+
+test('editor provider changes clear the previous API key without restoring it on the next change', () => {
+  const harness = createHarness();
+  const editor = new harness.Editor();
+  const changedConfigs = [];
+  editor.addEventListener('config-changed', (event) => changedConfigs.push(event.detail.config));
+  editor.setConfig({
+    layer: 'reflectivity',
+    basemap_provider: 'carto',
+    basemap_style: 'light',
+    basemap_api_key: 'stale-stadia-secret',
+    carto_api_key: 'carto-only-secret',
+    show_attribution: true,
+  });
+
+  const provider = editor.shadowRoot.getElementById('basemap_provider');
+  const apiKey = editor.shadowRoot.getElementById('basemap_api_key');
+  const showAttribution = editor.shadowRoot.getElementById('show_attribution');
+  assert.equal(provider.value, 'carto');
+  assert.equal(apiKey.value, 'carto-only-secret');
+
+  provider.value = 'bom';
+  provider.dispatchEvent({ type: 'change', target: provider });
+  assert.equal(changedConfigs.length, 1);
+  assert.equal(changedConfigs[0].basemap_provider, 'bom');
+  assert.equal(Object.hasOwn(changedConfigs[0], 'basemap_api_key'), false);
+  assert.equal(Object.hasOwn(changedConfigs[0], 'carto_api_key'), false);
+  assert.equal(apiKey.value, '');
+
+  showAttribution.checked = false;
+  showAttribution.dispatchEvent({ type: 'change', target: showAttribution });
+  assert.equal(changedConfigs.length, 2);
+  assert.equal(changedConfigs[1].show_attribution, false);
+  assert.equal(Object.hasOwn(changedConfigs[1], 'basemap_api_key'), false);
+  assert.equal(Object.hasOwn(changedConfigs[1], 'carto_api_key'), false);
+});
+
+test('editor keeps and trims a CARTO key without retaining a legacy provider key', () => {
+  const harness = createHarness();
+  const editor = new harness.Editor();
+  let changedConfig;
+  editor.addEventListener('config-changed', (event) => { changedConfig = event.detail.config; });
+  editor.setConfig({
+    layer: 'reflectivity',
+    basemap_provider: 'carto',
+    basemap_style: 'light',
+    basemap_api_key: 'stale-stadia-key',
+    carto_api_key: 'old-carto-key',
+  });
+
+  const apiKey = editor.shadowRoot.getElementById('basemap_api_key');
+  apiKey.value = '  replacement ?&/  ';
+  apiKey.dispatchEvent({ type: 'change', target: apiKey });
+
+  assert.equal(changedConfig.basemap_provider, 'carto');
+  assert.equal(changedConfig.carto_api_key, 'replacement ?&/');
+  assert.equal(Object.hasOwn(changedConfig, 'basemap_api_key'), false);
+});
+
+test('editor hides and removes an unscoped legacy key from an existing CARTO config', () => {
+  const harness = createHarness();
+  const editor = new harness.Editor();
+  let changedConfig;
+  editor.addEventListener('config-changed', (event) => { changedConfig = event.detail.config; });
+  editor.setConfig({
+    layer: 'reflectivity',
+    basemap_provider: 'carto',
+    basemap_style: 'light',
+    basemap_api_key: 'must-not-be-sent-to-carto',
+    show_attribution: true,
+  });
+
+  const apiKey = editor.shadowRoot.getElementById('basemap_api_key');
+  const showAttribution = editor.shadowRoot.getElementById('show_attribution');
+  assert.equal(apiKey.value, '');
+
+  showAttribution.checked = false;
+  showAttribution.dispatchEvent({ type: 'change', target: showAttribution });
+
+  assert.equal(Object.hasOwn(changedConfig, 'basemap_api_key'), false);
+  assert.equal(Object.hasOwn(changedConfig, 'carto_api_key'), false);
+  assert.equal(changedConfig.show_attribution, false);
+});
+
+test('editor stores a newly entered key for the provider selected after a Home Assistant rerender', () => {
+  const harness = createHarness();
+  const editor = new harness.Editor();
+  const changedConfigs = [];
+  editor.addEventListener('config-changed', (event) => changedConfigs.push(event.detail.config));
+  editor.setConfig({
+    layer: 'reflectivity',
+    basemap_provider: 'carto',
+    basemap_style: 'light',
+    carto_api_key: 'old-carto-key',
+  });
+
+  const provider = editor.shadowRoot.getElementById('basemap_provider');
+  provider.value = 'stadia';
+  provider.dispatchEvent({ type: 'change', target: provider });
+  assert.equal(Object.hasOwn(changedConfigs.at(-1), 'carto_api_key'), false);
+  assert.equal(Object.hasOwn(changedConfigs.at(-1), 'basemap_api_key'), false);
+
+  editor.setConfig(changedConfigs.at(-1));
+  const apiKey = editor.shadowRoot.getElementById('basemap_api_key');
+  assert.equal(apiKey.value, '');
+  apiKey.value = '  new-stadia-key  ';
+  apiKey.dispatchEvent({ type: 'change', target: apiKey });
+
+  assert.equal(changedConfigs.at(-1).basemap_provider, 'stadia');
+  assert.equal(changedConfigs.at(-1).basemap_api_key, 'new-stadia-key');
+  assert.equal(Object.hasOwn(changedConfigs.at(-1), 'carto_api_key'), false);
 });
 
 test('duplicate bundle evaluation preserves existing custom elements and card metadata', () => {

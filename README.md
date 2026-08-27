@@ -10,14 +10,14 @@ Native Australian Bureau of Meteorology radar and weather layers for Home Assist
 [![CI](https://github.com/AshtonAU/bom-radar-card/actions/workflows/ci.yml/badge.svg)](https://github.com/AshtonAU/bom-radar-card/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Current release: v1.11.0**
+**Current release: v1.11.1**
 
 </div>
 
 BOM Radar Card is a modern replacement for older Home Assistant radar cards that depended on the discontinued `api.weather.bom.gov.au` stack. It uses BOM's current public WMTS and MapServer services, with an interactive Leaflet map, animation, forecast layers, optional lightning, and a visual editor.
 
 > [!NOTE]
-> **v1.11.0 is a reliability and maintenance release.** It keeps existing frame limits and configuration compatible while fixing BOM publication-window edge frames, bundling Leaflet locally, hardening reconnect and lightning lifecycles, and adding an optional radar-coverage overlay. See the [changelog](CHANGELOG.md) for details.
+> **v1.11.1 is a backward-compatible patch release.** It restores reliable home-marker stacking and adds provider-isolated CARTO raster-key support without changing existing BOM, Stadia Maps, or Esri authentication. See the [changelog](CHANGELOG.md) for details.
 
 ## At a glance
 
@@ -29,7 +29,7 @@ BOM Radar Card is a modern replacement for older Home Assistant radar cards that
 - Optional BOM reference overlays, CARTO, Stadia Maps, and Esri basemaps
 - Optional live lightning from the Home Assistant Blitzortung integration
 - Visual editor plus full YAML configuration
-- No API key required for BOM data or the BOM and CARTO basemaps
+- No API key required for BOM data or BOM basemaps; CARTO requires a free browser key for unwatermarked raster tiles
 
 ## Contents
 
@@ -114,7 +114,8 @@ Most options are available in Home Assistant's visual editor. YAML-only options 
 | `allow_overzoom` | boolean | `false` | Scale BOM's native z8 radar tiles up to display zoom 10. |
 | `basemap_provider` | string | `bom` | `bom`, `carto`, `stadia`, or `esri`. |
 | `basemap_style` | string | `auto` | Provider style, including automatic day/night switching where supported. |
-| `basemap_api_key` | string | none | Optional Stadia Maps or Esri browser key. Stadia can use domain authentication instead; BOM and CARTO do not use this field. |
+| `carto_api_key` | string | none | CARTO browser key. Required for watermark-free CARTO raster tiles and never sent to another provider. |
+| `basemap_api_key` | string | none | Optional Stadia Maps or Esri browser key. Never sent to BOM or CARTO. |
 | `bom_reference_layers` | list | none | Add `state_borders`, `coastal_areas`, `forecast_districts`, `drainage_divisions`, `railways`, or `lakes`. |
 | `show_bom_boundaries` | boolean | `false` | Legacy shortcut that adds `state_borders`. |
 | `show_radar_coverage` | boolean | `false` | Shade areas outside BOM's radar-network coverage above `rain_rate` or `reflectivity`. It is ignored for other weather layers. |
@@ -139,7 +140,7 @@ Most options are available in Home Assistant's visual editor. YAML-only options 
 | `show_playback` | boolean | `true` | Show playback and timeline controls. |
 | `show_legend` | boolean | `true` | Show the rain-rate/reflectivity legend when applicable. |
 | `show_layer_label` | boolean | `false` | Show the active layer name. |
-| `show_attribution` | boolean | `true` | Show map and data attribution. |
+| `show_attribution` | boolean | `true` | User-toggleable map and data attribution. Disabling it does not waive provider attribution requirements. |
 | `square_style` | boolean | `false` | Use square corners for the card and controls. |
 | `dark_basemap` | boolean | `true` | Legacy light/dark fallback used when a fixed style is not configured. |
 
@@ -317,34 +318,48 @@ The built-in qualitative legend applies to `rain_rate` and `reflectivity`. Other
 | Provider | Included styles | API key |
 | --- | --- | --- |
 | `bom` | Default, Dark, Auto | Not required |
-| `carto` | Voyager Light, Dark Matter, Auto | Optional (recommended) |
+| `carto` | Voyager Light, Dark Matter, Auto | Free key required for watermark-free raster tiles |
 | `stadia` | Alidade Light/Dark, Outdoors, OSM Bright, Terrain, Satellite | Domain auth or API key required |
 | `esri` | World Imagery, World Topographic | May be required |
 
-Set `basemap_provider: carto` to retain the card's older CARTO appearance. Provider access terms can change; if a third-party basemap rejects tile requests, configure that provider's authentication rather than changing BOM radar settings. CARTO's basemap tiles now require a free API key — see below.
+Set `basemap_provider: carto` to retain the card's older CARTO appearance. CARTO now authenticates its legacy raster tiles with a free key and is retiring those raster endpoints in favour of vector basemaps. BOM remains the durable no-key default. Provider access terms can change; if a third-party basemap rejects tile requests, configure that provider's authentication rather than changing BOM radar settings.
 
 ### Getting basemap provider keys
 
-`bom` does not need a key. CARTO, Stadia Maps, and Esri share the `basemap_api_key` field; only the selected provider receives it.
+`carto_api_key` is used only by CARTO. The existing `basemap_api_key` remains exclusive to Stadia Maps and Esri, while BOM receives neither field. Keeping CARTO separate prevents a Stadia Maps or Esri key left in an older dashboard configuration from being sent to CARTO after an upgrade. The visual editor clears both key fields when the provider changes.
+
+> [!WARNING]
+> `carto_api_key` and `basemap_api_key` are client-side credentials. They are stored in the dashboard
+> configuration and are visible to browsers and in their tile requests. Never
+> use an account password, administrator token, or confidential server key.
+> Use a browser/client key with the narrowest available basemap permissions,
+> origin or referrer restrictions, and usage limits.
 
 <details>
 <summary><strong>CARTO authentication</strong></summary>
 
-CARTO's basemap tiles now require a free API key.
+CARTO's raster basemaps display an `API KEY REQUIRED` watermark without a valid key.
 
-1. Get a free API key at [carto.com/basemaps/apikey](https://carto.com/basemaps/apikey/).
-2. Add the key as `basemap_api_key` when using `basemap_provider: carto`.
+1. Request a free key from [CARTO's basemap key page](https://carto.com/basemaps/apikey/).
+2. Add it as `carto_api_key` while using `basemap_provider: carto`.
+3. Keep `show_attribution: true` to comply with CARTO's OpenStreetMap and CARTO attribution requirement.
+4. Hard-refresh Home Assistant after adding the key because previously watermarked tiles may remain cached.
 
-- [CARTO basemaps documentation](https://docs.carto.com/carto-for-developers/carto-for-react/guides/basemaps)
+```yaml
+type: custom:bom-radar-card
+basemap_provider: carto
+basemap_style: auto
+carto_api_key: YOUR_CARTO_KEY
+show_attribution: true
+```
+
+The card still exposes `show_attribution` as an end-user setting. Disabling it while using CARTO violates CARTO's requirement for visible OpenStreetMap and CARTO attribution; only disable attribution when the selected provider's terms permit it. CARTO's free key currently covers up to five million tile requests per calendar month. Its raster service is being retired, so new installations should prefer the default BOM basemap unless the CARTO appearance is specifically required.
+
+- [CARTO API-key instructions](https://carto.com/basemaps/apikey/)
+- [CARTO basemap terms](https://carto.com/legal/basemap-terms/)
+- [CARTO attribution requirements](https://carto.com/attributions/)
 
 </details>
-
-> [!WARNING]
-> `basemap_api_key` is a client-side credential. It is stored in the dashboard
-> configuration and is visible to browsers and in their tile requests. Never
-> use an account password, administrator token, or confidential server key.
-> Use a browser/client key with the narrowest available basemap permissions,
-> origin or referrer restrictions, and usage limits.
 
 <details>
 <summary><strong>Stadia Maps authentication</strong></summary>
@@ -436,15 +451,15 @@ The card requests weather tiles from BOM's own mapping service rather than a thi
 - Confirm the resource is loaded as a **JavaScript module**.
 - Hard-refresh the browser or clear the Home Assistant frontend cache.
 - Remove old BOM radar resources that may register a conflicting custom element.
-- Open the browser console and confirm it reports `BOM-RADAR-CARD v1.11.0`.
+- Open the browser console and confirm it reports `BOM-RADAR-CARD v1.11.1`.
 
 ### The map changes width or framing after switching tabs
 
 Upgrade to v1.11.0 or later and hard-refresh the browser. This release retains the cached-view and card-mod fixes while adding further guarded resize and reconnect handling.
 
-### A CARTO, Stadia Maps, or Esri basemap is blank or shows a watermark
+### A CARTO basemap is watermarked, or a Stadia Maps or Esri basemap is blank
 
-The BOM weather layer and third-party basemap are separate services. Add a valid client `basemap_api_key` for the selected provider, or configure the provider's domain authentication. If browser developer tools show a `401` or `403` tile response, check that the exact Home Assistant hostname in the browser is allowed. A CARTO map showing a "Missing API key" watermark needs a free CARTO `basemap_api_key` (see [Getting basemap provider keys](#getting-basemap-provider-keys)). BOM remains the only always-no-key option.
+The BOM weather layer and third-party basemap are separate services. A CARTO `API KEY REQUIRED` watermark means its free `carto_api_key` is missing or invalid; add a valid key and hard-refresh to discard cached tiles. For Stadia Maps or Esri, add the selected provider's `basemap_api_key` or configure supported domain authentication. If browser developer tools show a `401` or `403` tile response, check that the exact Home Assistant hostname is allowed. BOM remains the no-key alternative.
 
 ### The timeline shows fewer frames than requested
 
@@ -466,7 +481,7 @@ If the card saves you time and you want to support maintenance, you can use [Git
 ## Credits and license
 
 - Weather and reference data: [Australian Bureau of Meteorology](http://www.bom.gov.au) (Commonwealth of Australia)
-- Basemaps: BOM, [CARTO](https://carto.com/), [Stadia Maps](https://stadiamaps.com/), or [Esri](https://www.esri.com/), depending on configuration
+- Basemaps: BOM, [CARTO](https://carto.com/) with [OpenStreetMap](https://www.openstreetmap.org/copyright), [Stadia Maps](https://stadiamaps.com/), or [Esri](https://www.esri.com/), depending on configuration
 - Map library: [Leaflet](https://leafletjs.com/) 1.9.4, bundled under the BSD 2-Clause License with its notice preserved in the release asset
 - Lightning data: [Blitzortung.org](https://www.blitzortung.org/), when enabled
 

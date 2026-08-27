@@ -1,11 +1,30 @@
 # Changelog
 
-## Unreleased
+## v1.11.1 - 2026-08-27
 
 ### Fixed
 
-- `basemap_api_key` is now applied to CARTO tile requests (`?key=...`), matching
-  the existing Stadia Maps and Esri behaviour.
+- Applied a dedicated `carto_api_key` to both CARTO base and label tile requests using
+  CARTO's documented `?key=` parameter, restoring watermark-free authenticated
+  raster basemaps. This builds on the original CARTO key support contributed by
+  [@bossanova808](https://github.com/bossanova808) in
+  [#23](https://github.com/AshtonAU/bom-radar-card/pull/23).
+- Kept CARTO credentials separate from the existing Stadia Maps and Esri
+  `basemap_api_key`, so a key retained by an older CARTO configuration is never
+  sent to CARTO after upgrading.
+- Cleared both provider-specific basemap key fields in the visual editor
+  whenever the provider changes so a key is not sent to a different service.
+- Added the required OpenStreetMap credit to CARTO attribution and made the
+  visible attribution control easier to read. The existing `show_attribution`
+  option remains available and enabled by default.
+- Restored Leaflet's pane stacking order and absolute marker positioning so
+  the home marker remains above loaded map and weather tiles through redraws.
+
+### Documentation
+
+- Documented CARTO's free-key requirement and dedicated config field, cached
+  watermark recovery, attribution terms, provider-specific key handling, and
+  planned retirement of its raster basemap endpoints.
 
 ## v1.11.0 - 2026-08-16
 
